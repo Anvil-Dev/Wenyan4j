@@ -87,5 +87,29 @@ class WenyanEngineTest {
         WenyanEngine.Result result = new WenyanEngine().execute(source);
         assertEquals("268" + System.lineSeparator(), result.output());
     }
+
+    @Test
+    void registerExtensionPackageByPackageInfo() {
+        WenyanEngine engine = new WenyanEngine()
+                .registerWenyuanPackage("dev.anvilcraft.base.wenyan.extension");
+        String source = """
+                吾嘗觀『試算館』之書。方悟「倍之」之義。
+                施「倍之」於二十一。書之。
+                """;
+        WenyanEngine.Result result = engine.execute(source);
+        assertEquals("42" + System.lineSeparator(), result.output());
+    }
+
+    @Test
+    void registerExtensionClassExplicitly() {
+        WenyanEngine engine = new WenyanEngine()
+                .registerWenyuanClass(dev.anvilcraft.base.wenyan.extension.TestExtensionLibrary.class);
+        String source = """
+                吾嘗觀『試算館』之書。方悟「倍之」之義。
+                施「倍之」於九。書之。
+                """;
+        WenyanEngine.Result result = engine.execute(source);
+        assertEquals("18" + System.lineSeparator(), result.output());
+    }
 }
 

@@ -1,10 +1,8 @@
 package dev.anvilcraft.base.wenyan.runtime;
 
 import dev.anvilcraft.base.wenyan.annotation.WenyuanField;
-import dev.anvilcraft.base.wenyan.annotation.WenyuanPavilion;
 import dev.anvilcraft.base.wenyan.parser.wenyanBaseVisitor;
 import dev.anvilcraft.base.wenyan.parser.wenyanParser;
-import dev.anvilcraft.base.wenyan.wenyuan.MathematicalClassic;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
@@ -21,21 +19,22 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
-    private static final Map<String, Class<?>> PAVILIONS = initPavilions();
-
     private final CommonTokenStream tokens;
     private final StringBuilder output;
+    private final WenyuanRegistry registry;
 
     private Environment env = new Environment(null);
     private WenyanValue current = WenyanValue.NULL;
     private List<WenyanValue> pending = new ArrayList<>();
 
-    public WenyanInterpreter(CommonTokenStream tokens, StringBuilder output) {
+    public WenyanInterpreter(CommonTokenStream tokens, StringBuilder output, WenyuanRegistry registry) {
         this.tokens = tokens;
         this.output = output;
+        this.registry = Objects.requireNonNull(registry, "registry");
     }
 
     @Override
@@ -427,8 +426,8 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
     @Override
     public WenyanValue visitImport_statement(wenyanParser.Import_statementContext ctx) {
         String pavilionName = stripStringLiteral(ctx.STRING_LITERAL().getText());
-        Class<?> pavilionClass = PAVILIONS.get(pavilionName);
-        if (pavilionClass == null) {
+        Map<String, Method> pavilionMethods = registry.methodsFor(pavilionName);
+        if (pavilionMethods.isEmpty()) {
             throw new IllegalStateException("Unknown pavilion: " + pavilionName);
         }
 
@@ -437,16 +436,12 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
                 .map(this::stripIdentifier)
                 .collect(java.util.stream.Collectors.toSet());
 
-        for (Method method : pavilionClass.getDeclaredMethods()) {
-            dev.anvilcraft.base.wenyan.annotation.WenyuanFunction annotation =
-                    method.getAnnotation(dev.anvilcraft.base.wenyan.annotation.WenyuanFunction.class);
-            if (annotation == null) {
-                continue;
-            }
-            String importedName = annotation.value();
+        for (Map.Entry<String, Method> entry : pavilionMethods.entrySet()) {
+            String importedName = entry.getKey();
             if (!requested.isEmpty() && !requested.contains(importedName)) {
                 continue;
             }
+            Method method = entry.getValue();
             env.assign(importedName, WenyanValue.nativeFunction(args -> invokeNativeMethod(method, args)));
         }
         return WenyanValue.NULL;
@@ -650,18 +645,6 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         return text;
     }
 
-    private static Map<String, Class<?>> initPavilions() {
-        Map<String, Class<?>> result = new LinkedHashMap<>();
-        registerPavilion(result, MathematicalClassic.class);
-        return result;
-    }
-
-    private static void registerPavilion(Map<String, Class<?>> target, Class<?> type) {
-        WenyuanPavilion pavilion = type.getAnnotation(WenyuanPavilion.class);
-        if (pavilion != null) {
-            target.put(pavilion.value(), type);
-        }
-    }
 
     private WenyanValue invokeNativeMethod(Method method, List<WenyanValue> args) {
         try {
