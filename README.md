@@ -45,6 +45,7 @@ The shaded jar is built with dependency minimization (`minimize()`), so unused d
 ## Notes
 
 - Current runtime targets practical execution of repository examples first.
-- `import` and object-related statements are parsed but currently no-op in runtime.
+- `吾嘗觀...之書` now supports annotated Wenyuan pavilions (see `src/main/java/dev/anvilcraft/base/wenyan/wenyuan`).
+- Imported Java return objects can expose Wenyan fields via `@WenyuanField` (e.g. `其之『商』`, `其之『餘』`).
 - If you add reflection-based libraries in the future, configure Shadow excludes to avoid over-minimization.
 

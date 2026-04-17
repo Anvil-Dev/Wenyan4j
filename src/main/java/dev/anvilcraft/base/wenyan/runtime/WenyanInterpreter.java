@@ -1,18 +1,31 @@
 package dev.anvilcraft.base.wenyan.runtime;
 
+import dev.anvilcraft.base.wenyan.annotation.WenyuanField;
+import dev.anvilcraft.base.wenyan.annotation.WenyuanPavilion;
 import dev.anvilcraft.base.wenyan.parser.wenyanBaseVisitor;
 import dev.anvilcraft.base.wenyan.parser.wenyanParser;
+import dev.anvilcraft.base.wenyan.wenyuan.MathematicalClassic;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.RecordComponent;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
+    private static final Map<String, Class<?>> PAVILIONS = initPavilions();
+
     private final CommonTokenStream tokens;
     private final StringBuilder output;
 
@@ -263,7 +276,7 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
 
     @Override
     public WenyanValue visitReference_statement(wenyanParser.Reference_statementContext ctx) {
-        WenyanValue base = evalData(ctx.data());
+        WenyanValue base = ctx.data() == null ? current : evalData(ctx.data());
         WenyanValue result = base;
         String selector = findSelectorAfterZhi(ctx);
         if (selector != null) {
@@ -280,35 +293,34 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
     public WenyanValue visitAssign_statement(wenyanParser.Assign_statementContext ctx) {
         String name = stripIdentifier(ctx.IDENTIFIER(0).getText());
         WenyanValue target = env.get(name);
+        String statementText = ctx.getText();
 
         WenyanValue value;
-        if (ctx.getText().contains("今不復存矣")) {
+        if (statementText.contains("今不復存矣")) {
             env.delete(name);
             setPending(List.of(WenyanValue.NULL));
             return WenyanValue.NULL;
         }
 
-        if (ctx.getText().contains("今其是矣")) {
+        String rightSegment = extractBetween(statementText, "今", "是矣");
+        if (rightSegment.startsWith("其")) {
             value = current;
+            String rightSelector = extractSelector(rightSegment);
+            if (rightSelector != null) {
+                value = resolveSelector(value, rightSelector);
+            }
         } else {
             value = ctx.data() == null ? current : evalData(ctx.data());
+            String rightSelector = extractSelector(rightSegment);
+            if (rightSelector != null) {
+                value = resolveSelector(value, rightSelector);
+            }
         }
 
-        if (ctx.IDENTIFIER().size() >= 2 || !ctx.INT_NUM().isEmpty() || ctx.STRING_LITERAL() != null) {
-            String indexText;
-            if (ctx.IDENTIFIER().size() >= 2) {
-                indexText = ctx.IDENTIFIER(1).getText();
-            } else if (!ctx.INT_NUM().isEmpty()) {
-                indexText = ctx.INT_NUM(0).getText();
-            } else {
-                indexText = ctx.STRING_LITERAL().getText();
-            }
-            int index = evalDataOrCurrent(indexText).asNumber().intValue() - 1;
-            List<WenyanValue> arr = target.asArray();
-            while (index >= arr.size()) {
-                arr.add(WenyanValue.NULL);
-            }
-            arr.set(index, value);
+        String leftSegment = extractBetween(statementText, "昔之", "者");
+        String leftSelector = extractSelector(leftSegment);
+        if (leftSelector != null) {
+            assignBySelector(target, leftSelector, value);
         } else {
             env.assign(name, value);
         }
@@ -362,7 +374,14 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
             args.add(evalData(data));
         }
 
-        WenyanValue result = callFunction(functionValue.asFunction(), args);
+        WenyanValue result;
+        if (functionValue.type() == WenyanValue.Type.FUNCTION) {
+            result = callFunction(functionValue.asFunction(), args);
+        } else if (functionValue.type() == WenyanValue.Type.NATIVE_FUNCTION) {
+            result = functionValue.asNativeFunction().apply(args);
+        } else {
+            throw new IllegalStateException("Identifier is not callable: " + functionValue.type());
+        }
         setPending(List.of(result));
         return result;
     }
@@ -407,6 +426,29 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
 
     @Override
     public WenyanValue visitImport_statement(wenyanParser.Import_statementContext ctx) {
+        String pavilionName = stripStringLiteral(ctx.STRING_LITERAL().getText());
+        Class<?> pavilionClass = PAVILIONS.get(pavilionName);
+        if (pavilionClass == null) {
+            throw new IllegalStateException("Unknown pavilion: " + pavilionName);
+        }
+
+        Set<String> requested = ctx.IDENTIFIER().stream()
+                .map(TerminalNode::getText)
+                .map(this::stripIdentifier)
+                .collect(java.util.stream.Collectors.toSet());
+
+        for (Method method : pavilionClass.getDeclaredMethods()) {
+            dev.anvilcraft.base.wenyan.annotation.WenyuanFunction annotation =
+                    method.getAnnotation(dev.anvilcraft.base.wenyan.annotation.WenyuanFunction.class);
+            if (annotation == null) {
+                continue;
+            }
+            String importedName = annotation.value();
+            if (!requested.isEmpty() && !requested.contains(importedName)) {
+                continue;
+            }
+            env.assign(importedName, WenyanValue.nativeFunction(args -> invokeNativeMethod(method, args)));
+        }
         return WenyanValue.NULL;
     }
 
@@ -461,8 +503,13 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         if (ctx.getText().equals("其")) {
             return current;
         }
-        String baseName = stripIdentifier(ctx.IDENTIFIER(0).getText());
-        WenyanValue base = env.get(baseName);
+        WenyanValue base;
+        if (ctx.getText().startsWith("其之")) {
+            base = current;
+        } else {
+            String baseName = stripIdentifier(ctx.IDENTIFIER(0).getText());
+            base = env.get(baseName);
+        }
         String selector = findSelectorAfterZhi(ctx);
         if (selector == null) {
             throw new IllegalStateException("Invalid selector expression: " + ctx.getText());
@@ -471,18 +518,26 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
     }
 
     private WenyanValue resolveSelector(WenyanValue base, String selector) {
-        if ("長".equals(selector)) {
+        String normalizedSelector = normalizeSelectorName(selector);
+        if ("長".equals(normalizedSelector)) {
             if (base.type() == WenyanValue.Type.ARRAY) {
                 return WenyanValue.number(BigDecimal.valueOf(base.asArray().size()));
             }
             if (base.type() == WenyanValue.Type.STRING) {
                 return WenyanValue.number(BigDecimal.valueOf(base.asText().length()));
             }
+            if (base.type() == WenyanValue.Type.OBJECT) {
+                return WenyanValue.number(BigDecimal.valueOf(base.asObject().size()));
+            }
             throw new IllegalStateException("Length unsupported for type: " + base.type());
         }
 
+        if (base.type() == WenyanValue.Type.OBJECT && isQuotedLiteral(selector)) {
+            return base.asObject().getOrDefault(normalizedSelector, WenyanValue.NULL);
+        }
+
         WenyanValue indexValue = evalDataOrCurrent(selector);
-        int index = indexValue.asNumber().intValue() - 1;
+        int index = toIndex(indexValue);
         if (base.type() == WenyanValue.Type.ARRAY) {
             if (index < 0 || index >= base.asArray().size()) {
                 return WenyanValue.NULL;
@@ -533,10 +588,10 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         if ("其".equals(text)) {
             return current;
         }
-        if (text.startsWith("「「") && text.endsWith("」」")) {
+        if (isStringLiteral(text)) {
             return WenyanValue.text(stripStringLiteral(text));
         }
-        if (text.startsWith("「") && text.endsWith("」")) {
+        if (isIdentifierLiteral(text)) {
             return env.get(stripIdentifier(text));
         }
         if ("陽".equals(text) || "陰".equals(text)) {
@@ -579,6 +634,9 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         if (text.startsWith("「") && text.endsWith("」")) {
             return text.substring(1, text.length() - 1);
         }
+        if (text.startsWith("『") && text.endsWith("』")) {
+            return text.substring(1, text.length() - 1);
+        }
         return text;
     }
 
@@ -586,7 +644,197 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         if (text.startsWith("「「") && text.endsWith("」」")) {
             return text.substring(2, text.length() - 2);
         }
+        if (text.startsWith("『") && text.endsWith("』")) {
+            return text.substring(1, text.length() - 1);
+        }
         return text;
+    }
+
+    private static Map<String, Class<?>> initPavilions() {
+        Map<String, Class<?>> result = new LinkedHashMap<>();
+        registerPavilion(result, MathematicalClassic.class);
+        return result;
+    }
+
+    private static void registerPavilion(Map<String, Class<?>> target, Class<?> type) {
+        WenyuanPavilion pavilion = type.getAnnotation(WenyuanPavilion.class);
+        if (pavilion != null) {
+            target.put(pavilion.value(), type);
+        }
+    }
+
+    private WenyanValue invokeNativeMethod(Method method, List<WenyanValue> args) {
+        try {
+            Object[] javaArgs = adaptArguments(method.getParameterTypes(), args);
+            Object raw = method.invoke(null, javaArgs);
+            return fromJavaValue(raw);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new IllegalStateException("Failed to invoke native function: " + method.getName(), e);
+        }
+    }
+
+    private Object[] adaptArguments(Class<?>[] parameterTypes, List<WenyanValue> args) {
+        Object[] javaArgs = new Object[parameterTypes.length];
+        for (int i = 0; i < parameterTypes.length; i++) {
+            WenyanValue arg = i < args.size() ? args.get(i) : WenyanValue.NULL;
+            javaArgs[i] = toJavaValue(arg, parameterTypes[i]);
+        }
+        return javaArgs;
+    }
+
+    private Object toJavaValue(WenyanValue value, Class<?> targetType) {
+        if (targetType == String.class) {
+            return value.asText();
+        }
+        if (targetType == boolean.class || targetType == Boolean.class) {
+            return value.asBoolean();
+        }
+        if (targetType == int.class || targetType == Integer.class) {
+            return value.asNumber().intValue();
+        }
+        if (targetType == long.class || targetType == Long.class) {
+            return value.asNumber().longValue();
+        }
+        if (targetType == double.class || targetType == Double.class) {
+            return value.asNumber().doubleValue();
+        }
+        if (targetType == float.class || targetType == Float.class) {
+            return value.asNumber().floatValue();
+        }
+        if (targetType == BigDecimal.class) {
+            return value.asNumber();
+        }
+        if (targetType == BigInteger.class) {
+            return value.asNumber().toBigInteger();
+        }
+        throw new IllegalStateException("Unsupported native parameter type: " + targetType.getName());
+    }
+
+    private WenyanValue fromJavaValue(Object value) {
+        if (value == null) {
+            return WenyanValue.NULL;
+        }
+        if (value instanceof WenyanValue wenyanValue) {
+            return wenyanValue;
+        }
+        if (value instanceof String text) {
+            return WenyanValue.text(text);
+        }
+        if (value instanceof Boolean bool) {
+            return WenyanValue.bool(bool);
+        }
+        if (value instanceof Number number) {
+            return WenyanValue.number(new BigDecimal(number.toString()));
+        }
+        if (value instanceof List<?> list) {
+            List<WenyanValue> converted = new ArrayList<>(list.size());
+            for (Object item : list) {
+                converted.add(fromJavaValue(item));
+            }
+            return WenyanValue.array(converted);
+        }
+
+        Map<String, WenyanValue> fields = readAnnotatedFields(value);
+        if (!fields.isEmpty()) {
+            return WenyanValue.object(fields);
+        }
+        return WenyanValue.text(value.toString());
+    }
+
+    private Map<String, WenyanValue> readAnnotatedFields(Object value) {
+        Map<String, WenyanValue> fields = new LinkedHashMap<>();
+        Class<?> type = value.getClass();
+
+        if (type.isRecord()) {
+            for (RecordComponent component : type.getRecordComponents()) {
+                WenyuanField fieldAnnotation = component.getAnnotation(WenyuanField.class);
+                if (fieldAnnotation == null) {
+                    continue;
+                }
+                try {
+                    Object fieldValue = component.getAccessor().invoke(value);
+                    fields.put(fieldAnnotation.value(), fromJavaValue(fieldValue));
+                } catch (IllegalAccessException | InvocationTargetException e) {
+                    throw new IllegalStateException("Failed to read record field: " + component.getName(), e);
+                }
+            }
+            return fields;
+        }
+
+        for (Field field : type.getDeclaredFields()) {
+            WenyuanField fieldAnnotation = field.getAnnotation(WenyuanField.class);
+            if (fieldAnnotation == null) {
+                continue;
+            }
+            try {
+                field.setAccessible(true);
+                fields.put(fieldAnnotation.value(), fromJavaValue(field.get(value)));
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException("Failed to read field: " + field.getName(), e);
+            }
+        }
+        return fields;
+    }
+
+    private boolean isStringLiteral(String text) {
+        return (text.startsWith("「「") && text.endsWith("」」"))
+                || (text.startsWith("『") && text.endsWith("』"));
+    }
+
+    private boolean isIdentifierLiteral(String text) {
+        return (text.startsWith("「") && text.endsWith("」"))
+                || (text.startsWith("『") && text.endsWith("』"));
+    }
+
+    private boolean isQuotedLiteral(String text) {
+        return isStringLiteral(text) || isIdentifierLiteral(text);
+    }
+
+    private String normalizeSelectorName(String selector) {
+        return stripStringLiteral(stripIdentifier(selector));
+    }
+
+    private String extractBetween(String text, String start, String end) {
+        int from = text.indexOf(start);
+        if (from < 0) {
+            return "";
+        }
+        int begin = from + start.length();
+        int to = text.indexOf(end, begin);
+        if (to < 0) {
+            return text.substring(begin);
+        }
+        return text.substring(begin, to);
+    }
+
+    private String extractSelector(String segment) {
+        int idx = segment.indexOf("之");
+        if (idx < 0 || idx == segment.length() - 1) {
+            return null;
+        }
+        return segment.substring(idx + 1);
+    }
+
+    private void assignBySelector(WenyanValue target, String selectorText, WenyanValue value) {
+        String selector = normalizeSelectorName(selectorText);
+        if (target.type() == WenyanValue.Type.OBJECT && isQuotedLiteral(selectorText)) {
+            target.asObject().put(selector, value);
+            return;
+        }
+        int index = toIndex(evalDataOrCurrent(selectorText));
+        if (target.type() != WenyanValue.Type.ARRAY) {
+            throw new IllegalStateException("Indexed assignment unsupported for type: " + target.type());
+        }
+        List<WenyanValue> arr = target.asArray();
+        while (index >= arr.size()) {
+            arr.add(WenyanValue.NULL);
+        }
+        arr.set(index, value);
+    }
+
+    private int toIndex(WenyanValue numericSelector) {
+        int raw = numericSelector.asNumber().intValue();
+        return raw <= 0 ? 0 : raw - 1;
     }
 
     private String findSelectorAfterZhi(ParserRuleContext ctx) {

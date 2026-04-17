@@ -67,5 +67,25 @@ class WenyanEngineTest {
         String nl = System.lineSeparator();
         assertEquals("2" + nl + "4" + nl, result.output());
     }
+
+    @Test
+    void importPavilionFunctionAndReadAnnotatedFields() {
+        String source = """
+                吾嘗觀『算經』之書。方悟「取底除」之義。
+                施「取底除」於七。於三。名之曰「甲」。
+                夫「甲」之『商』。書之。
+                夫「甲」之『餘』。書之。
+                """;
+        WenyanEngine.Result result = new WenyanEngine().execute(source);
+        String nl = System.lineSeparator();
+        assertEquals("2" + nl + "1" + nl, result.output());
+    }
+
+    @Test
+    void runIncrementalSquareRootExample() throws Exception {
+        String source = Files.readString(Path.of("example", "增乘開平方.wy"), StandardCharsets.UTF_8);
+        WenyanEngine.Result result = new WenyanEngine().execute(source);
+        assertEquals("268" + System.lineSeparator(), result.output());
+    }
 }
 

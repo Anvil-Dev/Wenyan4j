@@ -2,8 +2,11 @@ package dev.anvilcraft.base.wenyan.runtime;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 public final class WenyanValue {
 	public static final WenyanValue NULL = new WenyanValue(Type.NULL, null);
@@ -14,6 +17,8 @@ public final class WenyanValue {
 		BOOLEAN,
 		ARRAY,
 		FUNCTION,
+		NATIVE_FUNCTION,
+		OBJECT,
 		NULL
 	}
 
@@ -45,6 +50,14 @@ public final class WenyanValue {
 		return new WenyanValue(Type.FUNCTION, value);
 	}
 
+	public static WenyanValue nativeFunction(Function<List<WenyanValue>, WenyanValue> value) {
+		return new WenyanValue(Type.NATIVE_FUNCTION, value);
+	}
+
+	public static WenyanValue object(Map<String, WenyanValue> value) {
+		return new WenyanValue(Type.OBJECT, new LinkedHashMap<>(value));
+	}
+
 	public Type type() {
 		return type;
 	}
@@ -72,7 +85,8 @@ public final class WenyanValue {
 			case NUMBER -> asNumber().compareTo(BigDecimal.ZERO) != 0;
 			case STRING -> !((String) value).isEmpty();
 			case ARRAY -> !asArray().isEmpty();
-			case FUNCTION -> true;
+			case FUNCTION, NATIVE_FUNCTION -> true;
+			case OBJECT -> !asObject().isEmpty();
 			case NULL -> false;
 		};
 	}
@@ -92,9 +106,28 @@ public final class WenyanValue {
 		return (WenyanFunction) value;
 	}
 
+	@SuppressWarnings("unchecked")
+	public Function<List<WenyanValue>, WenyanValue> asNativeFunction() {
+		if (type != Type.NATIVE_FUNCTION) {
+			throw new IllegalStateException("Expected native function but got " + type);
+		}
+		return (Function<List<WenyanValue>, WenyanValue>) value;
+	}
+
+	@SuppressWarnings("unchecked")
+	public Map<String, WenyanValue> asObject() {
+		if (type != Type.OBJECT) {
+			throw new IllegalStateException("Expected object but got " + type);
+		}
+		return (Map<String, WenyanValue>) value;
+	}
+
 	public WenyanValue copyIfNeeded() {
 		if (type == Type.ARRAY) {
 			return array(asArray());
+		}
+		if (type == Type.OBJECT) {
+			return object(asObject());
 		}
 		return this;
 	}
@@ -105,7 +138,11 @@ public final class WenyanValue {
 			case STRING -> (String) value;
 			case BOOLEAN -> (Boolean) value ? "陽" : "陰";
 			case ARRAY -> asArray().stream().map(WenyanValue::toDisplayString).toList().toString();
-			case FUNCTION -> "<術>";
+			case FUNCTION, NATIVE_FUNCTION -> "<術>";
+			case OBJECT -> asObject().entrySet().stream()
+					.map(e -> e.getKey() + ":" + e.getValue().toDisplayString())
+					.toList()
+					.toString();
 			case NULL -> "空無";
 		};
 	}
