@@ -130,6 +130,12 @@ publishing {
                 name = base.archivesName.get()
                 description = 'A minimal wenyan-lang runtime in Java.'
                 url = 'https://github.com/Anvil-Dev/wenyan4j'
+                licenses {
+                    license {
+                        name = 'LGPL-3.0'
+                        url = 'https://opensource.org/license/lgpl-3-0'
+                    }
+                }
 
                 developers {
                     developer {
