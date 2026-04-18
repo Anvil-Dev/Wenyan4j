@@ -38,6 +38,12 @@ tasks.jar {
     }
 }
 
+tasks.register('sourcesJar', Jar) {
+    archiveClassifier = "sources"
+    from delombok.outputs.files
+    dependsOn delombok
+}
+
 tasks.named("shadowJar", ShadowJar.class) {
     archiveClassifier = "all"
     // Remove unused dependency classes from the shaded jar.
@@ -77,6 +83,7 @@ publishing {
             from components.java
 
             artifact shadowJar
+            artifact sourcesJar
 
             versionMapping {
                 allVariants {
