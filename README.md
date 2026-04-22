@@ -33,6 +33,14 @@ Run another example:
 ./gradlew.bat test
 ```
 
+## Build Javadoc Jar
+
+```powershell
+./gradlew.bat javadocJar
+```
+
+This produces `build/libs/*-javadoc.jar`.
+
 ## Build Runnable Jar (Shadow)
 
 ```powershell

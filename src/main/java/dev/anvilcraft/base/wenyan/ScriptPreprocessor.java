@@ -1,6 +1,7 @@
 package dev.anvilcraft.base.wenyan;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 
 final class ScriptPreprocessor {
     private static final String SIMPLIFIED_PAVILION_HEADER = "吾嘗觀『简化秘术』之書";
@@ -34,7 +35,7 @@ final class ScriptPreprocessor {
     private ScriptPreprocessor() {
     }
 
-    static String preprocess(String source) {
+    static @Nullable String preprocess(@Nullable String source) {
         if (source == null || source.isEmpty()) {
             return source;
         }
@@ -133,7 +134,7 @@ final class ScriptPreprocessor {
         }
     }
 
-    private static String stripSimplifiedPavilionPrefix(String source) {
+    private static @Nullable String stripSimplifiedPavilionPrefix(String source) {
         Integer matched = null;
         if (source.startsWith(SIMPLIFIED_PAVILION_HEADER)) {
             matched = SIMPLIFIED_PAVILION_HEADER.length();

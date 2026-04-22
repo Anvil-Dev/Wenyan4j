@@ -1,3 +1,6 @@
+/**
+ * 内置文渊阁扩展实现。
+ */
 @ParametersAreNonnullByDefault
 @FieldsAreNonnullByDefault
 @MethodsReturnNonnullByDefault

@@ -1,3 +1,6 @@
+/**
+ * 文言引擎对外 API。
+ */
 @ParametersAreNonnullByDefault
 @FieldsAreNonnullByDefault
 @MethodsReturnNonnullByDefault

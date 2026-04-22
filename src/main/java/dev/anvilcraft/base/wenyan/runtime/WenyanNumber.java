@@ -2,8 +2,12 @@ package dev.anvilcraft.base.wenyan.runtime;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.util.Map;
 
+/**
+ * 文言数字解析与格式化工具。
+ */
 public final class WenyanNumber {
     private static final String[] CHINESE_DIGITS = {"零", "一", "二", "三", "四", "五", "六", "七", "八", "九"};
     private static final String[] SMALL_INTEGER_UNITS = {"", "十", "百", "千"};
@@ -39,6 +43,12 @@ public final class WenyanNumber {
     private WenyanNumber() {
     }
 
+    /**
+     * 将十进制数值格式化为中文数字文本。
+     *
+     * @param value 数值
+     * @return 中文数字文本
+     */
     public static String toChineseText(BigDecimal value) {
         BigDecimal normalized = value.stripTrailingZeros();
         if (normalized.compareTo(BigDecimal.ZERO) == 0) {
@@ -67,6 +77,13 @@ public final class WenyanNumber {
         return text.toString();
     }
 
+    /**
+     * 将文言数字文本解析为 {@link BigDecimal}。
+     * 支持繁体中文数字、文言分数写法及 ASCII 十进制数字。
+     *
+     * @param text 数字字面量文本
+     * @return 解析后的十进制值
+     */
     public static BigDecimal parse(String text) {
         String s = text.trim();
         if (s.isEmpty()) {
@@ -109,7 +126,7 @@ public final class WenyanNumber {
             return BigDecimal.ZERO;
         }
         BigDecimal numerator = new BigDecimal(parseIntegerChinese(number));
-        return numerator.divide(BigDecimal.valueOf(denominator));
+        return numerator.divide(BigDecimal.valueOf(denominator), 3, RoundingMode.HALF_EVEN);
     }
 
     private static BigInteger parseIntegerChinese(String text) {
@@ -165,7 +182,7 @@ public final class WenyanNumber {
             int groupValue = Integer.parseInt(digits.substring(start, end));
 
             if (groupValue == 0) {
-                pendingZero = result.length() > 0;
+                pendingZero = !result.isEmpty();
                 continue;
             }
 
@@ -203,7 +220,7 @@ public final class WenyanNumber {
             value %= divisor;
 
             if (digit == 0) {
-                zeroPending = result.length() > 0;
+                zeroPending = !result.isEmpty();
                 continue;
             }
 
@@ -212,7 +229,7 @@ public final class WenyanNumber {
                 zeroPending = false;
             }
 
-            if (!(digit == 1 && unit == 1 && result.length() == 0)) {
+            if (!(digit == 1 && unit == 1 && result.isEmpty())) {
                 result.append(CHINESE_DIGITS[digit]);
             }
             result.append(SMALL_INTEGER_UNITS[unit]);

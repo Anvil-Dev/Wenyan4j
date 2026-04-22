@@ -1,3 +1,6 @@
+/**
+ * 文言运行时、值系统与解释器内部实现。
+ */
 @ParametersAreNonnullByDefault
 @FieldsAreNonnullByDefault
 @MethodsReturnNonnullByDefault

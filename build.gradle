@@ -73,6 +73,22 @@ tasks.register('sourcesJar', Jar) {
     dependsOn delombok
 }
 
+tasks.named('javadoc', Javadoc) {
+    dependsOn tasks.generateGrammarSource
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    source = fileTree('src/main/java') {
+        include '**/*.java'
+    }
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+}
+
+tasks.register('javadocJar', Jar) {
+    archiveClassifier = "javadoc"
+    from tasks.javadoc.destinationDir
+    dependsOn tasks.javadoc
+}
+
 tasks.named("shadowJar", ShadowJar) {
     archiveClassifier = "all"
     // Remove unused dependency classes from the shaded jar.
@@ -118,6 +134,9 @@ publishing {
             }
             artifact sourcesJar {
                 archiveClassifier = "sources"
+            }
+            artifact javadocJar {
+                archiveClassifier = "javadoc"
             }
 
             versionMapping {

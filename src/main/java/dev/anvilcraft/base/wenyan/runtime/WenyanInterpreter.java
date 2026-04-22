@@ -21,7 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
+/**
+ * 执行文言语法树的访问器。
+ */
 public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
     private final CommonTokenStream tokens;
     private final StringBuilder output;
@@ -31,6 +35,13 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
     private WenyanValue current = WenyanValue.NULL;
     private List<WenyanValue> pending = new ArrayList<>();
 
+    /**
+     * 创建解释器实例并绑定解析输入与输出缓冲区。
+     *
+     * @param tokens 解析器 token 流
+     * @param output {@code 書之} 输出缓冲区
+     * @param registry 文渊阁函数注册表快照
+     */
     public WenyanInterpreter(CommonTokenStream tokens, StringBuilder output, WenyuanRegistry registry) {
         this.tokens = tokens;
         this.output = output;
@@ -86,8 +97,7 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
     @Override
     public WenyanValue visitDefine_statement(wenyanParser.Define_statementContext ctx) {
         if (ctx.init_define_statement() != null) {
-            WenyanValue value = visitInit_define_statement(ctx.init_define_statement());
-            return value;
+            return visitInit_define_statement(ctx.init_define_statement());
         }
         visitDeclare_statement(ctx.declare_statement());
         applyNameMulti(ctx.name_multi_statement());
@@ -170,8 +180,8 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         boolean result = switch (ctx.LOGIC_BINARY_OP().getText()) {
             case "中有陽乎" -> left.asArray().stream().anyMatch(WenyanValue::asBoolean)
                     || right.asArray().stream().anyMatch(WenyanValue::asBoolean);
-            case "中無陰乎" -> left.asArray().stream().noneMatch(v -> !v.asBoolean())
-                    && right.asArray().stream().noneMatch(v -> !v.asBoolean());
+            case "中無陰乎" -> left.asArray().stream().allMatch(WenyanValue::asBoolean)
+                    && right.asArray().stream().allMatch(WenyanValue::asBoolean);
             default -> throw new IllegalStateException("Unsupported boolean op");
         };
         WenyanValue value = WenyanValue.bool(result);
@@ -452,6 +462,11 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         return WenyanValue.NULL;
     }
 
+    /**
+     * 返回当前解释执行过程产生的全部输出文本。
+     *
+     * @return 累积输出文本
+     */
     public String output() {
         return output.toString();
     }
@@ -597,7 +612,7 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
 
     private void setPending(List<WenyanValue> values) {
         pending = new ArrayList<>(values);
-        current = pending.isEmpty() ? WenyanValue.NULL : pending.get(pending.size() - 1);
+        current = pending.isEmpty() ? WenyanValue.NULL : pending.getLast();
     }
 
     private WenyanValue defaultValue(String typeText) {
@@ -615,7 +630,7 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
             return;
         }
         String name = stripIdentifier(ctx.IDENTIFIER().getText());
-        env.define(name, pending.get(0).copyIfNeeded());
+        env.define(name, pending.getFirst().copyIfNeeded());
     }
 
     private void applyNameMulti(wenyanParser.Name_multi_statementContext ctx) {
@@ -693,28 +708,32 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         throw new IllegalStateException("Unsupported native parameter type: " + targetType.getName());
     }
 
-    private WenyanValue fromJavaValue(Object value) {
-        if (value == null) {
-            return WenyanValue.NULL;
-        }
-        if (value instanceof WenyanValue wenyanValue) {
-            return wenyanValue;
-        }
-        if (value instanceof String text) {
-            return WenyanValue.text(text);
-        }
-        if (value instanceof Boolean bool) {
-            return WenyanValue.bool(bool);
-        }
-        if (value instanceof Number number) {
-            return WenyanValue.number(new BigDecimal(number.toString()));
-        }
-        if (value instanceof List<?> list) {
-            List<WenyanValue> converted = new ArrayList<>(list.size());
-            for (Object item : list) {
-                converted.add(fromJavaValue(item));
+    private WenyanValue fromJavaValue(@Nullable Object value) {
+        switch (value) {
+            case null -> {
+                return WenyanValue.NULL;
             }
-            return WenyanValue.array(converted);
+            case WenyanValue wenyanValue -> {
+                return wenyanValue;
+            }
+            case String text -> {
+                return WenyanValue.text(text);
+            }
+            case Boolean bool -> {
+                return WenyanValue.bool(bool);
+            }
+            case Number number -> {
+                return WenyanValue.number(new BigDecimal(number.toString()));
+            }
+            case List<?> list -> {
+                List<WenyanValue> converted = new ArrayList<>(list.size());
+                for (Object item : list) {
+                    converted.add(fromJavaValue(item));
+                }
+                return WenyanValue.array(converted);
+            }
+            default -> {
+            }
         }
 
         Map<String, WenyanValue> fields = readAnnotatedFields(value);
@@ -790,7 +809,7 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         return text.substring(begin, to);
     }
 
-    private String extractSelector(String segment) {
+    private @Nullable String extractSelector(String segment) {
         int idx = segment.indexOf("之");
         if (idx < 0 || idx == segment.length() - 1) {
             return null;
@@ -820,7 +839,7 @@ public final class WenyanInterpreter extends wenyanBaseVisitor<WenyanValue> {
         return raw <= 0 ? 0 : raw - 1;
     }
 
-    private String findSelectorAfterZhi(ParserRuleContext ctx) {
+    private @Nullable String findSelectorAfterZhi(ParserRuleContext ctx) {
         for (int i = 0; i < ctx.getChildCount() - 1; i++) {
             if ("之".equals(ctx.getChild(i).getText())) {
                 return ctx.getChild(i + 1).getText();

@@ -1,3 +1,6 @@
+/**
+ * 文言命令行入口相关类型。
+ */
 @ParametersAreNonnullByDefault
 @FieldsAreNonnullByDefault
 @MethodsReturnNonnullByDefault

@@ -24,7 +24,11 @@ import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
+/**
+ * 发现并保存可暴露给文言脚本的 Java 扩展函数。
+ */
 public final class WenyuanRegistry {
     private static final String BUILTIN_PACKAGE = "dev.anvilcraft.base.wenyan.wenyuan";
 
@@ -32,18 +36,32 @@ public final class WenyuanRegistry {
     private final Map<String, Map<String, Method>> pavilionMethods = new LinkedHashMap<>();
     private final Set<String> scannedPackages = new LinkedHashSet<>();
 
+    /**
+     * 使用当前线程上下文类加载器创建注册表。
+     */
     public WenyuanRegistry() {
         this(Thread.currentThread().getContextClassLoader());
     }
 
-    private WenyuanRegistry(ClassLoader classLoader) {
+    private WenyuanRegistry(@Nullable ClassLoader classLoader) {
         this.classLoader = classLoader == null ? WenyuanRegistry.class.getClassLoader() : classLoader;
     }
 
+    /**
+     * 创建并预加载内置文渊阁函数。
+     *
+     * @return 已包含内置扩展函数的注册表
+     */
     public static WenyuanRegistry withDefaults() {
         return new WenyuanRegistry().registerPackage(BUILTIN_PACKAGE);
     }
 
+    /**
+     * 扫描并注册某个包内的扩展类。
+     *
+     * @param packageName 待扫描包名
+     * @return 当前注册表（便于链式调用）
+     */
     public WenyuanRegistry registerPackage(String packageName) {
         if (!scannedPackages.add(packageName)) {
             return this;
@@ -64,6 +82,13 @@ public final class WenyuanRegistry {
         return this;
     }
 
+    /**
+     * 注册单个扩展类。
+     *
+     * @param clazz 带有文渊阁/函数注解的类
+     * @return 当前注册表（便于链式调用）
+     */
+    @SuppressWarnings("UnusedReturnValue")
     public WenyuanRegistry registerClass(Class<?> clazz) {
         String pavilionName = resolvePavilionName(clazz);
         if (pavilionName == null) {
@@ -73,6 +98,12 @@ public final class WenyuanRegistry {
         return this;
     }
 
+    /**
+     * 获取指定文渊阁已注册的方法映射。
+     *
+     * @param pavilionName 文言脚本中的文渊阁名
+     * @return 不可变的“函数名 -> Java 方法”映射
+     */
     public Map<String, Method> methodsFor(String pavilionName) {
         Map<String, Method> methods = pavilionMethods.get(pavilionName);
         if (methods == null) {
@@ -81,6 +112,11 @@ public final class WenyuanRegistry {
         return Collections.unmodifiableMap(methods);
     }
 
+    /**
+     * 创建深拷贝，确保不同引擎实例使用隔离的注册表。
+     *
+     * @return 注册表快照
+     */
     public WenyuanRegistry snapshot() {
         WenyuanRegistry copy = new WenyuanRegistry(classLoader);
         copy.scannedPackages.addAll(scannedPackages);
@@ -90,7 +126,7 @@ public final class WenyuanRegistry {
         return copy;
     }
 
-    private Package loadAnnotatedPackage(String packageName) {
+    private @Nullable Package loadAnnotatedPackage(String packageName) {
         try {
             Class<?> packageInfo = Class.forName(packageName + ".package-info", false, classLoader);
             Package pkg = packageInfo.getPackage();
@@ -103,7 +139,7 @@ public final class WenyuanRegistry {
         }
     }
 
-    private String resolvePavilionName(Class<?> clazz) {
+    private @Nullable String resolvePavilionName(Class<?> clazz) {
         WenyuanPavilion classLevel = clazz.getAnnotation(WenyuanPavilion.class);
         if (classLevel != null) {
             return classLevel.value();
