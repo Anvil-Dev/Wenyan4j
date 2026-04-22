@@ -46,6 +46,21 @@ dependencies {
     compileOnly(libs.jsr305)
 }
 
+generateGrammarSource {
+    outputDirectory = file('src/generated/java/dev/anvilcraft/base/wenyan/parser')
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = [
+                    'src/main/java',
+                    'src/generated/java',
+            ]
+        }
+    }
+}
+
 tasks.jar {
     manifest {
         attributes(
